@@ -3,45 +3,48 @@
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <parent>
-    <groupId>com.google.protobuf</groupId>
-    <artifactId>protobuf-parent</artifactId>
-    <version>3.5.2</version>
-  </parent>
 
   <artifactId>protobuf-java-util</artifactId>
-  <packaging>bundle</packaging>
+    <groupId>com.safetyculture</groupId>
+    <version>0.1</version>
 
   <name>Protocol Buffers [Util]</name>
   <description>Utilities for Protocol Buffers</description>
 
   <dependencies>
     <dependency>
-      <groupId>${project.groupId}</groupId>
-      <artifactId>protobuf-java</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>com.google.guava</groupId>
-      <artifactId>guava</artifactId>
-    </dependency>
-    <dependency>
       <groupId>com.google.code.gson</groupId>
       <artifactId>gson</artifactId>
       <version>2.7</version>
     </dependency>
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.easymock</groupId>
-      <artifactId>easymock</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.easymock</groupId>
-      <artifactId>easymockclassextension</artifactId>
-    </dependency>
+      <dependency>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+          <version>4.12</version>
+          <scope>test</scope>
+      </dependency>
+      <dependency>
+          <groupId>org.easymock</groupId>
+          <artifactId>easymock</artifactId>
+          <version>2.2</version>
+          <scope>test</scope>
+      </dependency>
+      <dependency>
+          <groupId>org.easymock</groupId>
+          <artifactId>easymockclassextension</artifactId>
+          <version>2.2.1</version>
+          <scope>test</scope>
+      </dependency>
+      <dependency>
+          <groupId>com.google.guava</groupId>
+          <artifactId>guava</artifactId>
+          <version>19.0</version>
+      </dependency>
+      <dependency>
+          <groupId>com.google.protobuf</groupId>
+          <artifactId>protobuf-java</artifactId>
+          <version>3.5.1</version>
+      </dependency>
   </dependencies>
 
   <properties>
@@ -49,79 +52,94 @@
     <test.proto.dir>../core/src/test/proto</test.proto.dir>
   </properties>
 
-  <build>
-    <plugins>
-      <plugin>
-        <artifactId>maven-antrun-plugin</artifactId>
-        <executions>
-          <!-- Generate the test protos -->
-          <execution>
-            <id>generate-test-sources</id>
-            <phase>generate-test-sources</phase>
-            <configuration>
-              <target>
-                <!-- Generate all of the test protos from the core module -->
-                <ant antfile="../core/generate-test-sources-build.xml"/>
+    <build>
+        <outputDirectory>target/classes</outputDirectory>
+        <testOutputDirectory>target/test-classes</testOutputDirectory>
+        <plugins>
 
-                <!-- Generate additional test protos for this module -->
-                <exec executable="${protoc}">
-                  <arg value="--java_out=${generated.testsources.dir}" />
-                  <arg value="--proto_path=${protobuf.source.dir}" />
-                  <arg value="--proto_path=src/test/proto" />
-                  <arg value="src/test/proto/com/google/protobuf/util/json_test.proto" />
-                </exec>
-              </target>
-            </configuration>
-            <goals>
-              <goal>run</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-install-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <outputDirectory>target</outputDirectory>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>net.alchim31.maven</groupId>
+                <artifactId>scala-maven-plugin</artifactId>
+                <version>3.2.1</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                            <goal>testCompile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <jvmArgs>
+                        <jvmArg>-Xms64m</jvmArg>
+                        <jvmArg>-Xmx1024m</jvmArg>
+                    </jvmArgs>
+                    <args>
+                        <!--
+                           In combination with Scala 2.11, `-Xexperimental` enables SAM
+                           for Java 8 lambda support.  Make sure `kafka.scala.version`
+                           is set to `2.11`, not `2.10`.
+                        -->
+                        <arg>-Xexperimental</arg>
+                    </args>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Disable surefire -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.7</version>
+                <configuration>
+                    <skipTests>true</skipTests>
+                </configuration>
+            </plugin>
+            <!-- Enable scalatest -->
 
-      <!-- Add the generated test sources to the build -->
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>build-helper-maven-plugin</artifactId>
-        <executions>
-          <execution>
-            <id>add-generated-test-sources</id>
-            <phase>generate-test-sources</phase>
-            <goals>
-              <goal>add-test-source</goal>
-            </goals>
-            <configuration>
-              <sources>
-                <source>${generated.testsources.dir}</source>
-              </sources>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
-      <!-- Configure the OSGI bundle -->
-      <plugin>
-        <groupId>org.apache.felix</groupId>
-        <artifactId>maven-bundle-plugin</artifactId>
-        <extensions>true</extensions>
-        <configuration>
-          <instructions>
-            <Bundle-DocURL>https://developers.google.com/protocol-buffers/</Bundle-DocURL>
-            <Bundle-SymbolicName>com.google.protobuf.util</Bundle-SymbolicName>
-            <Export-Package>com.google.protobuf.util;version=${project.version}</Export-Package>
-          </instructions>
-        </configuration>
-      </plugin>
-
-      <!-- Configure the fat jar to include all dependencies -->
-      <plugin>
-        <artifactId>maven-assembly-plugin</artifactId>
-        <configuration>
-          <descriptorRefs>
-            <descriptorRef>jar-with-dependencies</descriptorRef>
-          </descriptorRefs>
-        </configuration>
-      </plugin>
-    </plugins>
-  </build>
+        </plugins>
+    </build>
 </project>

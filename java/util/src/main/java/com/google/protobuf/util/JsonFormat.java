@@ -317,7 +317,7 @@ public class JsonFormat {
    * Creates a {@link Parser} with default configuration.
    */
   public static Parser parser() {
-    return new Parser(TypeRegistry.getEmptyTypeRegistry(), false, Parser.DEFAULT_RECURSION_LIMIT);
+    return new Parser(TypeRegistry.getEmptyTypeRegistry(), false, Parser.DEFAULT_RECURSION_LIMIT, false);
   }
 
   /**
@@ -327,14 +327,16 @@ public class JsonFormat {
     private final TypeRegistry registry;
     private final boolean ignoringUnknownFields;
     private final int recursionLimit;
+    private final boolean enableDefaultValue;
 
     // The default parsing recursion limit is aligned with the proto binary parser.
     private static final int DEFAULT_RECURSION_LIMIT = 100;
 
-    private Parser(TypeRegistry registry, boolean ignoreUnknownFields, int recursionLimit) {
+    private Parser(TypeRegistry registry, boolean ignoreUnknownFields, int recursionLimit, boolean enableDefaultValue) {
       this.registry = registry;
       this.ignoringUnknownFields = ignoreUnknownFields;
       this.recursionLimit = recursionLimit;
+      this.enableDefaultValue = enableDefaultValue;
     }
 
     /**
@@ -347,7 +349,7 @@ public class JsonFormat {
       if (this.registry != TypeRegistry.getEmptyTypeRegistry()) {
         throw new IllegalArgumentException("Only one registry is allowed.");
       }
-      return new Parser(registry, ignoringUnknownFields, recursionLimit);
+      return new Parser(registry, ignoringUnknownFields, recursionLimit, enableDefaultValue);
     }
 
     /**
@@ -355,7 +357,14 @@ public class JsonFormat {
      * encountered. The new Parser clones all other configurations from this Parser.
      */
     public Parser ignoringUnknownFields() {
-      return new Parser(this.registry, true, recursionLimit);
+      return new Parser(this.registry, true, recursionLimit, this.enableDefaultValue);
+    }
+
+    /**
+     * Creates a new {@link Parser} where allow you set default values on error during parsing
+     */
+    public Parser setDefaultOnError() {
+      return new Parser(this.registry, this.ignoringUnknownFields, recursionLimit, true);
     }
 
     /**
@@ -367,7 +376,7 @@ public class JsonFormat {
     public void merge(String json, Message.Builder builder) throws InvalidProtocolBufferException {
       // TODO(xiaofeng): Investigate the allocation overhead and optimize for
       // mobile.
-      new ParserImpl(registry, ignoringUnknownFields, recursionLimit).merge(json, builder);
+      new ParserImpl(registry, ignoringUnknownFields, recursionLimit, enableDefaultValue).merge(json, builder);
     }
 
     /**
@@ -380,12 +389,12 @@ public class JsonFormat {
     public void merge(Reader json, Message.Builder builder) throws IOException {
       // TODO(xiaofeng): Investigate the allocation overhead and optimize for
       // mobile.
-      new ParserImpl(registry, ignoringUnknownFields, recursionLimit).merge(json, builder);
+      new ParserImpl(registry, ignoringUnknownFields, recursionLimit, enableDefaultValue).merge(json, builder);
     }
 
     // For testing only.
     Parser usingRecursionLimit(int recursionLimit) {
-      return new Parser(registry, ignoringUnknownFields, recursionLimit);
+      return new Parser(registry, ignoringUnknownFields, recursionLimit, false);
     }
   }
 
@@ -1154,13 +1163,15 @@ public class JsonFormat {
     private final boolean ignoringUnknownFields;
     private final int recursionLimit;
     private int currentDepth;
+    private boolean enableDefaultValue;
 
-    ParserImpl(TypeRegistry registry, boolean ignoreUnknownFields, int recursionLimit) {
+    ParserImpl(TypeRegistry registry, boolean ignoreUnknownFields, int recursionLimit, boolean enableDefaultValue) {
       this.registry = registry;
       this.ignoringUnknownFields = ignoreUnknownFields;
       this.jsonParser = new JsonParser();
       this.recursionLimit = recursionLimit;
       this.currentDepth = 0;
+      this.enableDefaultValue = enableDefaultValue;
     }
 
     void merge(Reader json, Message.Builder builder) throws IOException {
@@ -1577,7 +1588,10 @@ public class JsonFormat {
         BigDecimal value = new BigDecimal(json.getAsString());
         return value.intValueExact();
       } catch (Exception e) {
-        throw new InvalidProtocolBufferException("Not an int32 value: " + json);
+        if(enableDefaultValue)
+          return 0;
+        else
+          throw new InvalidProtocolBufferException("Not an int32 value: " + json);
       }
     }
 
@@ -1594,7 +1608,10 @@ public class JsonFormat {
         BigDecimal value = new BigDecimal(json.getAsString());
         return value.longValueExact();
       } catch (Exception e) {
-        throw new InvalidProtocolBufferException("Not an int64 value: " + json);
+        if (enableDefaultValue)
+          return 0;
+        else
+          throw new InvalidProtocolBufferException("Not an int64 value: " + json);
       }
     }
 
@@ -1623,7 +1640,10 @@ public class JsonFormat {
       } catch (InvalidProtocolBufferException e) {
         throw e;
       } catch (Exception e) {
-        throw new InvalidProtocolBufferException("Not an uint32 value: " + json);
+        if (enableDefaultValue)
+          return 0;
+        else
+          throw new InvalidProtocolBufferException("Not an uint32 value: " + json);
       }
     }
 
@@ -1640,7 +1660,11 @@ public class JsonFormat {
       } catch (InvalidProtocolBufferException e) {
         throw e;
       } catch (Exception e) {
-        throw new InvalidProtocolBufferException("Not an uint64 value: " + json);
+        if (enableDefaultValue) {
+          return 0;
+        } else {
+          throw new InvalidProtocolBufferException("Not an uint64 value: " + json);
+        }
       }
     }
 
@@ -1651,7 +1675,16 @@ public class JsonFormat {
       if (json.getAsString().equals("false")) {
         return false;
       }
-      throw new InvalidProtocolBufferException("Invalid bool value: " + json);
+      try {
+        if (this.parseInt32(json) == 0)
+          return false;
+        else if (this.parseInt32(json) != 0)
+          return true;
+        else
+          throw new InvalidProtocolBufferException("Invalid bool value: " + json);
+      } catch (InvalidProtocolBufferException e) {
+        throw new InvalidProtocolBufferException("Invalid bool value: " + json);
+      }
     }
 
     private static final double EPSILON = 1e-6;
@@ -1680,7 +1713,10 @@ public class JsonFormat {
       } catch (InvalidProtocolBufferException e) {
         throw e;
       } catch (Exception e) {
-        throw new InvalidProtocolBufferException("Not a float value: " + json);
+        if (enableDefaultValue)
+          return 0;
+        else
+          throw new InvalidProtocolBufferException("Not a float value: " + json);
       }
     }
 
@@ -1713,7 +1749,10 @@ public class JsonFormat {
       } catch (InvalidProtocolBufferException e) {
         throw e;
       } catch (Exception e) {
-        throw new InvalidProtocolBufferException("Not an double value: " + json);
+        if (enableDefaultValue)
+          return 0.0;
+        else
+          throw new InvalidProtocolBufferException("Not an double value: " + json);
       }
     }
 
@@ -1725,7 +1764,11 @@ public class JsonFormat {
       try {
         return ByteString.copyFrom(BaseEncoding.base64().decode(json.getAsString()));
       } catch (IllegalArgumentException e) {
-        return ByteString.copyFrom(BaseEncoding.base64Url().decode(json.getAsString()));
+        if (enableDefaultValue) {
+          return ByteString.EMPTY;
+        } else {
+          return ByteString.copyFrom(BaseEncoding.base64Url().decode(json.getAsString()));
+        }
       }
     }
 
