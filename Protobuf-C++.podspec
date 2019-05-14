@@ -19,7 +19,7 @@ Pod::Spec.new do |s|
               :tag => "v#{s.version}" }
 
   s.source_files = 'config.h',
-                  'src/google/protobuf/**/*.{h,cc}'
+                  'src/google/protobuf/**/*.{h,cc,inc}'
 
   s.compiler_flags = '-D_THREAD_SAFE', '-DHAVE_PTHREAD=1'
   s.libraries = 'c++'
