@@ -72,15 +72,13 @@ MessageGenerator::MessageGenerator(const Descriptor* descriptor,
   std::sort(fields_by_number_.begin(), fields_by_number_.end(),
             CompareFieldNumbers);
 
-  if (IsProto2(descriptor_->file())) {
-    int primitiveCount = 0;
-    for (int i = 0; i < descriptor_->field_count(); i++) {
-      const FieldDescriptor* field = descriptor_->field(i);
-      if (!IsNullable(field)) {
-        primitiveCount++;
-        if (has_bit_field_count_ == 0 || (primitiveCount % 32) == 0) {
-          has_bit_field_count_++;
-        }
+  int presence_bit_count = 0;
+  for (int i = 0; i < descriptor_->field_count(); i++) {
+    const FieldDescriptor* field = descriptor_->field(i);
+    if (RequiresPresenceBit(field)) {
+      presence_bit_count++;
+      if (has_bit_field_count_ == 0 || (presence_bit_count % 32) == 0) {
+        has_bit_field_count_++;
       }
     }
   }
@@ -149,6 +147,12 @@ void MessageGenerator::Generate(io::Printer* printer) {
     } else {
       printer->Print(vars, "private pb::ExtensionSet<$class_name$> _extensions;\n");
     }
+
+    // a read-only property for fast
+    // retrieval of the set in IsInitialized
+    printer->Print(vars,
+                   "private pb::ExtensionSet<$class_name$> _Extensions { get { "
+                   "return _extensions; } }\n");
   }
 
   for (int i = 0; i < has_bit_field_count_; i++) {
@@ -216,11 +220,12 @@ void MessageGenerator::Generate(io::Printer* printer) {
     printer->Print("\n");
   }
 
-  // oneof properties
-  for (int i = 0; i < descriptor_->oneof_decl_count(); i++) {
-    vars["name"] = UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), false);
-    vars["property_name"] = UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), true);
-    vars["original_name"] = descriptor_->oneof_decl(i)->name();
+  // oneof properties (for real oneofs, which come before synthetic ones)
+  for (int i = 0; i < descriptor_->real_oneof_decl_count(); i++) {
+    const OneofDescriptor* oneof = descriptor_->oneof_decl(i);
+    vars["name"] = UnderscoresToCamelCase(oneof->name(), false);
+    vars["property_name"] = UnderscoresToCamelCase(oneof->name(), true);
+    vars["original_name"] = oneof->name();
     printer->Print(
       vars,
       "private object $name$_;\n"
@@ -228,8 +233,8 @@ void MessageGenerator::Generate(io::Printer* printer) {
       "public enum $property_name$OneofCase {\n");
     printer->Indent();
     printer->Print("None = 0,\n");
-    for (int j = 0; j < descriptor_->oneof_decl(i)->field_count(); j++) {
-      const FieldDescriptor* field = descriptor_->oneof_decl(i)->field(j);
+    for (int j = 0; j < oneof->field_count(); j++) {
+      const FieldDescriptor* field = oneof->field(j);
       printer->Print("$field_property_name$ = $index$,\n",
                      "field_property_name", GetPropertyName(field),
                      "index", StrCat(field->number()));
@@ -263,28 +268,39 @@ void MessageGenerator::Generate(io::Printer* printer) {
 
   if (has_extension_ranges_) {
     printer->Print(
-      vars,
-      "public TValue GetExtension<TValue>(pb::Extension<$class_name$, TValue> extension) {\n"
-      "  return pb::ExtensionSet.Get(ref _extensions, extension);\n"
-      "}\n"
-      "public pbc::RepeatedField<TValue> GetExtension<TValue>(pb::RepeatedExtension<$class_name$, TValue> extension) {\n"
-      "  return pb::ExtensionSet.Get(ref _extensions, extension);\n"
-      "}\n"
-      "public pbc::RepeatedField<TValue> GetOrRegisterExtension<TValue>(pb::RepeatedExtension<$class_name$, TValue> extension) {\n"
-      "  return pb::ExtensionSet.GetOrRegister(ref _extensions, extension);\n"
-      "}\n"
-      "public void SetExtension<TValue>(pb::Extension<$class_name$, TValue> extension, TValue value) {\n"
-      "  pb::ExtensionSet.Set(ref _extensions, extension, value);\n"
-      "}\n"
-      "public bool HasExtension<TValue>(pb::Extension<$class_name$, TValue> extension) {\n"
-      "  return pb::ExtensionSet.Has(ref _extensions, extension);\n"
-      "}\n"
-      "public void ClearExtension<TValue>(pb::Extension<$class_name$, TValue> extension) {\n"
-      "  pb::ExtensionSet.Clear(ref _extensions, extension);\n"
-      "}\n"
-      "public void ClearExtension<TValue>(pb::RepeatedExtension<$class_name$, TValue> extension) {\n"
-      "  pb::ExtensionSet.Clear(ref _extensions, extension);\n"
-      "}\n\n");
+        vars,
+        "public TValue GetExtension<TValue>(pb::Extension<$class_name$, "
+        "TValue> extension) {\n"
+        "  return pb::ExtensionSet.Get(ref _extensions, extension);\n"
+        "}\n"
+        "public pbc::RepeatedField<TValue> "
+        "GetExtension<TValue>(pb::RepeatedExtension<$class_name$, TValue> "
+        "extension) {\n"
+        "  return pb::ExtensionSet.Get(ref _extensions, extension);\n"
+        "}\n"
+        "public pbc::RepeatedField<TValue> "
+        "GetOrInitializeExtension<TValue>(pb::RepeatedExtension<$class_name$, "
+        "TValue> extension) {\n"
+        "  return pb::ExtensionSet.GetOrInitialize(ref _extensions, "
+        "extension);\n"
+        "}\n"
+        "public void SetExtension<TValue>(pb::Extension<$class_name$, TValue> "
+        "extension, TValue value) {\n"
+        "  pb::ExtensionSet.Set(ref _extensions, extension, value);\n"
+        "}\n"
+        "public bool HasExtension<TValue>(pb::Extension<$class_name$, TValue> "
+        "extension) {\n"
+        "  return pb::ExtensionSet.Has(ref _extensions, extension);\n"
+        "}\n"
+        "public void ClearExtension<TValue>(pb::Extension<$class_name$, "
+        "TValue> extension) {\n"
+        "  pb::ExtensionSet.Clear(ref _extensions, extension);\n"
+        "}\n"
+        "public void "
+        "ClearExtension<TValue>(pb::RepeatedExtension<$class_name$, TValue> "
+        "extension) {\n"
+        "  pb::ExtensionSet.Clear(ref _extensions, extension);\n"
+        "}\n\n");
   }
 
   // Nested messages and enums
@@ -320,7 +336,7 @@ void MessageGenerator::Generate(io::Printer* printer) {
       "#region Extensions\n"
       "/// <summary>Container for extensions for other messages declared in the $class_name$ message type.</summary>\n");
     WriteGeneratedCodeAttributes(printer);
-    printer->Print("internal static partial class Extensions {\n");
+    printer->Print("public static partial class Extensions {\n");
     printer->Indent();
     for (int i = 0; i < descriptor_->extension_count(); i++) {
       std::unique_ptr<FieldGeneratorBase> generator(
@@ -365,23 +381,24 @@ void MessageGenerator::GenerateCloningCode(io::Printer* printer) {
   for (int i = 0; i < has_bit_field_count_; i++) {
     printer->Print("_hasBits$i$ = other._hasBits$i$;\n", "i", StrCat(i));
   }
-  // Clone non-oneof fields first
+  // Clone non-oneof fields first (treating optional proto3 fields as non-oneof)
   for (int i = 0; i < descriptor_->field_count(); i++) {
-    if (!descriptor_->field(i)->containing_oneof()) {
-      std::unique_ptr<FieldGeneratorBase> generator(
-        CreateFieldGeneratorInternal(descriptor_->field(i)));
-      generator->GenerateCloningCode(printer);
+    const FieldDescriptor* field = descriptor_->field(i);
+    if (field->real_containing_oneof()) {
+      continue;
     }
+    std::unique_ptr<FieldGeneratorBase> generator(CreateFieldGeneratorInternal(field));
+    generator->GenerateCloningCode(printer);
   }
-  // Clone just the right field for each oneof
-  for (int i = 0; i < descriptor_->oneof_decl_count(); ++i) {
-    vars["name"] = UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), false);
-    vars["property_name"] = UnderscoresToCamelCase(
-        descriptor_->oneof_decl(i)->name(), true);
+  // Clone just the right field for each real oneof
+  for (int i = 0; i < descriptor_->real_oneof_decl_count(); ++i) {
+    const OneofDescriptor* oneof = descriptor_->oneof_decl(i);
+    vars["name"] = UnderscoresToCamelCase(oneof->name(), false);
+    vars["property_name"] = UnderscoresToCamelCase(oneof->name(), true);
     printer->Print(vars, "switch (other.$property_name$Case) {\n");
     printer->Indent();
-    for (int j = 0; j < descriptor_->oneof_decl(i)->field_count(); j++) {
-      const FieldDescriptor* field = descriptor_->oneof_decl(i)->field(j);
+    for (int j = 0; j < oneof->field_count(); j++) {
+      const FieldDescriptor* field = oneof->field(j);
       std::unique_ptr<FieldGeneratorBase> generator(CreateFieldGeneratorInternal(field));
       vars["field_property_name"] = GetPropertyName(field);
       printer->Print(
@@ -444,9 +461,9 @@ void MessageGenerator::GenerateFrameworkMethods(io::Printer* printer) {
             CreateFieldGeneratorInternal(descriptor_->field(i)));
         generator->WriteEquals(printer);
     }
-    for (int i = 0; i < descriptor_->oneof_decl_count(); i++) {
-        printer->Print("if ($property_name$Case != other.$property_name$Case) return false;\n",
-            "property_name", UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), true));
+    for (int i = 0; i < descriptor_->real_oneof_decl_count(); i++) {
+      printer->Print("if ($property_name$Case != other.$property_name$Case) return false;\n",
+          "property_name", UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), true));
     }
     if (has_extension_ranges_) {
       printer->Print(
@@ -471,9 +488,9 @@ void MessageGenerator::GenerateFrameworkMethods(io::Printer* printer) {
             CreateFieldGeneratorInternal(descriptor_->field(i)));
         generator->WriteHash(printer);
     }
-    for (int i = 0; i < descriptor_->oneof_decl_count(); i++) {
-        printer->Print("hash ^= (int) $name$Case_;\n",
-            "name", UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), false));
+    for (int i = 0; i < descriptor_->real_oneof_decl_count(); i++) {
+      printer->Print("hash ^= (int) $name$Case_;\n",
+          "name", UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), false));
     }
     if (has_extension_ranges_) {
       printer->Print(
@@ -572,22 +589,24 @@ void MessageGenerator::GenerateMergingMethods(io::Printer* printer) {
     "if (other == null) {\n"
     "  return;\n"
     "}\n");
-  // Merge non-oneof fields
+  // Merge non-oneof fields, treating optional proto3 fields as normal fields
   for (int i = 0; i < descriptor_->field_count(); i++) {
-    if (!descriptor_->field(i)->containing_oneof()) {
-      std::unique_ptr<FieldGeneratorBase> generator(
-          CreateFieldGeneratorInternal(descriptor_->field(i)));
-      generator->GenerateMergingCode(printer);
+    const FieldDescriptor* field = descriptor_->field(i);
+    if (field->real_containing_oneof()) {
+      continue;
     }
+    std::unique_ptr<FieldGeneratorBase> generator(CreateFieldGeneratorInternal(field));
+    generator->GenerateMergingCode(printer);
   }
-  // Merge oneof fields
-  for (int i = 0; i < descriptor_->oneof_decl_count(); ++i) {
-    vars["name"] = UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), false);
-    vars["property_name"] = UnderscoresToCamelCase(descriptor_->oneof_decl(i)->name(), true);
+  // Merge oneof fields (for non-synthetic oneofs)
+  for (int i = 0; i < descriptor_->real_oneof_decl_count(); ++i) {
+    const OneofDescriptor* oneof = descriptor_->oneof_decl(i);
+    vars["name"] = UnderscoresToCamelCase(oneof->name(), false);
+    vars["property_name"] = UnderscoresToCamelCase(oneof->name(), true);
     printer->Print(vars, "switch (other.$property_name$Case) {\n");
     printer->Indent();
-    for (int j = 0; j < descriptor_->oneof_decl(i)->field_count(); j++) {
-      const FieldDescriptor* field = descriptor_->oneof_decl(i)->field(j);
+    for (int j = 0; j < oneof->field_count(); j++) {
+      const FieldDescriptor* field = oneof->field(j);
       vars["field_property_name"] = GetPropertyName(field);
       printer->Print(
         vars,
@@ -625,9 +644,9 @@ void MessageGenerator::GenerateMergingMethods(io::Printer* printer) {
   printer->Indent();
   if (end_tag_ != 0) {
     printer->Print(
-      "$end_tag$:\n"
-      "  return;\n",
-      "end_tag", StrCat(end_tag_));
+        "case $end_tag$:\n"
+        "  return;\n",
+        "end_tag", StrCat(end_tag_));
   }
   if (has_extension_ranges_) {
     printer->Print(
@@ -681,7 +700,7 @@ void MessageGenerator::GenerateMergingMethods(io::Printer* printer) {
 
 // it's a waste of space to track presence for all values, so we only track them if they're not nullable
 int MessageGenerator::GetPresenceIndex(const FieldDescriptor* descriptor) {
-  if (IsNullable(descriptor) || !IsProto2(descriptor_->file())) {
+  if (!RequiresPresenceBit(descriptor)) {
     return -1;
   }
 
@@ -691,7 +710,7 @@ int MessageGenerator::GetPresenceIndex(const FieldDescriptor* descriptor) {
     if (field == descriptor) {
       return index;
     }
-    if (!IsNullable(field)) {
+    if (RequiresPresenceBit(field)) {
       index++;
     }
   }
