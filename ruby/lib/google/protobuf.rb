@@ -50,6 +50,8 @@ else
   rescue LoadError
     require 'google/protobuf_c'
   end
+
+  require 'google/protobuf/descriptor_dsl'
 end
 
 require 'google/protobuf/repeated_field'
